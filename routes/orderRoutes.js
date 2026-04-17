@@ -3,10 +3,13 @@ const router = express.Router();
 const { 
     createOrder, 
     getOrders, 
-    addReview, 
+    addReview,
+    addCustomerReview,
     getCraftsmanReviews,
+    getCustomerReviews,
     updateOrderStatus,
-    getCraftsmanOrders
+    getCraftsmanOrders,
+    getTopCraftsmen
 } = require('../controllers/orderController');
 const authMiddleware = require('../middleware/auth');
 
@@ -20,6 +23,9 @@ router.put('/:orderId/status', authMiddleware, updateOrderStatus);
 
 // Review routes
 router.post('/review', authMiddleware, addReview);
+router.post('/customer-review', authMiddleware, addCustomerReview);
 router.get('/reviews/craftsman/:craftsmanId', getCraftsmanReviews);
+router.get('/reviews/customer/:userId', getCustomerReviews);
+router.get('/top-craftsmen', getTopCraftsmen);
 
 module.exports = router;

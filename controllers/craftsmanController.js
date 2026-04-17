@@ -5,36 +5,39 @@ const getCraftsmen = async (req, res) => {
         const { lat, lng, service_id, radius = 5 } = req.query;
 
         const craftsmen = await pool.query(
-            `SELECT 
-                c.id,
-                c.user_id,
-                c.lat,
-                c.lng,
-                c.rating,
-                c.is_verified,
-                u.name,
-                u.phone,
-                (6371 * acos(
-                    cos(radians($1)) * cos(radians(c.lat)) * 
-                    cos(radians(c.lng) - radians($2)) + 
-                    sin(radians($1)) * sin(radians(c.lat))
-                )) AS distance
-            FROM craftsmen c
-            JOIN users u ON c.user_id = u.id
-            JOIN craftsman_services cs ON c.id = cs.craftsman_id
-            WHERE 
-                cs.service_id = $3
-                AND c.is_verified = true
-                AND c.is_active = true
-                AND (6371 * acos(
-                    cos(radians($1)) * cos(radians(c.lat)) * 
-                    cos(radians(c.lng) - radians($2)) + 
-                    sin(radians($1)) * sin(radians(c.lat))
-                )) <= $4
-            ORDER BY distance ASC, c.rating DESC
-            LIMIT 20`,
-            [lat, lng, service_id, radius]
-        );
+    `SELECT 
+        c.id,
+        c.user_id,
+        c.lat,
+        c.lng,
+        c.rating,
+        c.score,
+        c.badge,
+        c.total_ratings,
+        c.is_verified,
+        u.name,
+        u.phone,
+        (6371 * acos(
+            cos(radians($1)) * cos(radians(c.lat)) * 
+            cos(radians(c.lng) - radians($2)) + 
+            sin(radians($1)) * sin(radians(c.lat))
+        )) AS distance
+    FROM craftsmen c
+    JOIN users u ON c.user_id = u.id
+    JOIN craftsman_services cs ON c.id = cs.craftsman_id
+    WHERE 
+        cs.service_id = $3
+        AND c.is_verified = true
+        AND c.is_active = true
+        AND (6371 * acos(
+            cos(radians($1)) * cos(radians(c.lat)) * 
+            cos(radians(c.lng) - radians($2)) + 
+            sin(radians($1)) * sin(radians(c.lat))
+        )) <= $4
+    ORDER BY c.score DESC, distance ASC, c.rating DESC
+    LIMIT 20`,
+    [lat, lng, service_id, radius]
+);
 
         res.json(craftsmen.rows);
 
