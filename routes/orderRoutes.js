@@ -8,31 +8,18 @@ const {
     updateOrderStatus,
     getCraftsmanOrders
 } = require('../controllers/orderController');
+const authMiddleware = require('../middleware/auth');
 
-// Qareeb Order Routes
-
-// Create new order
+// Order routes
 router.post('/', createOrder);
-
-// Get user orders
 router.get('/user/:userId', getOrders);
 
-// Add review (needs authentication)
-router.post('/review', (req, res, next) => {
-    req.app.locals.authenticateToken(req, res, next);
-}, addReview);
+// Craftsman order routes
+router.get('/craftsman', authMiddleware, getCraftsmanOrders);
+router.put('/:orderId/status', authMiddleware, updateOrderStatus);
 
-// Get craftsman reviews (public)
-router.get('/reviews/:craftsmanId', getCraftsmanReviews);
-
-// Get craftsman orders (needs authentication)
-router.get('/craftsman', (req, res, next) => {
-    req.app.locals.authenticateToken(req, res, next);
-}, getCraftsmanOrders);
-
-// Update order status (needs authentication, craftsman only)
-router.put('/:orderId/status', (req, res, next) => {
-    req.app.locals.authenticateToken(req, res, next);
-}, updateOrderStatus);
+// Review routes
+router.post('/review', authMiddleware, addReview);
+router.get('/reviews/craftsman/:craftsmanId', getCraftsmanReviews);
 
 module.exports = router;
