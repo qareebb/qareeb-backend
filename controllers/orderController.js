@@ -16,14 +16,14 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // Create Order
 const createOrder = async (req, res) => {
     try {
-        const { user_id, service_id, lat, lng, address_text } = req.body;
+        const { user_id, service_id, craftsman_id, lat, lng, address_text } = req.body;
 
         // 1. إنشاء الطلب
         const newOrder = await pool.query(
-            `INSERT INTO orders (user_id, service_id, lat, lng, address_text, status) 
+            `INSERT INTO orders (user_id, service_id, craftsman_id, lat, lng, address_text, status)
              VALUES ($1, $2, $3, $4, $5, 'pending') 
              RETURNING *`,
-            [user_id, service_id, lat, lng, address_text]
+            [user_id, service_id, craftsman_id || null, lat, lng, address_text]
         );
 
         const orderId = newOrder.rows[0].id;
