@@ -97,6 +97,7 @@ const login = async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 };
+
 // Get User Profile
 const getProfile = async (req, res) => {
     try {
@@ -264,10 +265,123 @@ const updateCraftsmanProfile = async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 };
+// Forgot Password - Send verification code
+const forgotPassword = async (req, res) => {
+    try {
+        const { phone } = req.body;
+
+        // Check if user exists
+        const user = await pool.query(
+            'SELECT id, name FROM users WHERE phone = $1',
+            [phone]
+        );
+
+        if (user.rows.length === 0) {
+            return res.status(404).json({ error: 'رقم الهاتف غير مسجل' });
+        }
+
+        // Generate 6-digit code
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // Save code to database (expires in 10 minutes)
+        await pool.query(
+            `INSERT INTO password_resets (phone, code, expires_at) 
+             VALUES ($1, $2, NOW() + INTERVAL '10 minutes')
+             ON CONFLICT (phone) DO UPDATE 
+             SET code = $2, expires_at = NOW() + INTERVAL '10 minutes'`,
+            [phone, code]
+        );
+
+        console.log(`Verification code for ${phone}: ${code}`);
+
+        res.json({ 
+            message: 'تم إرسال رمز التحقق',
+            debug_code: code // احذف هذا في الإنتاج
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+// Reset Password - Verify code and update password
+const resetPassword = async (req, res) => {
+    try {
+        const { phone, code, newPassword } = req.body;
+
+        // Verify code
+        const reset = await pool.query(
+            `SELECT * FROM password_resets 
+             WHERE phone = $1 AND code = $2 AND expires_at > NOW()`,
+            [phone, code]
+        );
+
+        if (reset.rows.length === 0) {
+            return res.status(400).json({ error: 'رمز التحقق غير صحيح أو منتهي الصلاحية' });
+        }
+
+        // Hash new password
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        // Update password
+        await pool.query(
+            'UPDATE users SET password = $1 WHERE phone = $2',
+            [hashedPassword, phone]
+        );
+
+        // Delete used code
+        await pool.query('DELETE FROM password_resets WHERE phone = $1', [phone]);
+
+        res.json({ message: 'تم تغيير كلمة المرور بنجاح' });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+// Change Password
+const changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const userId = req.user.id;
+
+        const user = await pool.query(
+            'SELECT * FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (user.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const validPassword = await bcrypt.compare(currentPassword, user.rows[0].password);
+        if (!validPassword) {
+            return res.status(401).json({ error: 'كلمة المرور الحالية غير صحيحة' });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await pool.query(
+            'UPDATE users SET password = $1 WHERE id = $2',
+            [hashedPassword, userId]
+        );
+
+        res.json({ message: 'تم تغيير كلمة المرور بنجاح' });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
 module.exports = { 
     register, 
     login, 
     getProfile, 
     updateProfile,
-    updateCraftsmanProfile
+    updateCraftsmanProfile,
+    changePassword,
+    forgotPassword,
+    resetPassword
 };

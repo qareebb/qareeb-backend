@@ -5,7 +5,10 @@ const {
     login, 
     getProfile, 
     updateProfile,
-    updateCraftsmanProfile
+    updateCraftsmanProfile,
+    changePassword,
+    forgotPassword,
+    resetPassword
 } = require('../controllers/authController');
 
 // Qareeb Auth Routes
@@ -13,6 +16,8 @@ const {
 // Public routes
 router.post('/register', register);
 router.post('/login', login);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 // Protected routes (need JWT token)
 router.get('/profile', (req, res, next) => {
@@ -26,5 +31,9 @@ router.put('/profile', (req, res, next) => {
 router.put('/craftsman/profile', (req, res, next) => {
     req.app.locals.authenticateToken(req, res, next);
 }, updateCraftsmanProfile);
+
+router.put('/change-password', (req, res, next) => {
+    req.app.locals.authenticateToken(req, res, next);
+}, changePassword);
 
 module.exports = router;
