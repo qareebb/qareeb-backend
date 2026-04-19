@@ -382,7 +382,37 @@ const changePassword = async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 };
-
+// Set Password (للحرفيين الجدد - أول مرة)
+const setPassword = async (req, res) => {
+    try {
+        const { phone, password } = req.body;
+        
+        // البحث عن المستخدم
+        const user = await pool.query(
+            'SELECT * FROM users WHERE phone = $1',
+            [phone]
+        );
+        
+        if (user.rows.length === 0) {
+            return res.status(404).json({ error: 'رقم الهاتف غير موجود' });
+        }
+        
+        // تشفير كلمة المرور الجديدة
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // تحديث كلمة المرور
+        await pool.query(
+            'UPDATE users SET password = $1 WHERE phone = $2',
+            [hashedPassword, phone]
+        );
+        
+        res.json({ message: 'تم تعيين كلمة المرور بنجاح' });
+        
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
 module.exports = { 
     register, 
     login, 
@@ -391,5 +421,6 @@ module.exports = {
     updateCraftsmanProfile,
     changePassword,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    setPassword      // ← أضف هذا
 };
