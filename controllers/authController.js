@@ -27,11 +27,15 @@ const register = async (req, res) => {
         );
 
         // If craftsman, create craftsman record
-        if (role === 'craftsman') {
-            const craftsmanResult = await pool.query(
-                'INSERT INTO craftsmen (user_id, lat, lng, is_verified, is_active, score, badge) VALUES ($1, 34.7400, 10.7600, true, true, 50, $2) RETURNING id',
-                [newUser.rows[0].id, '⭐ موثوق']
-            );
+if (role === 'craftsman') {
+    // استخدام الإحداثيات المرسلة أو الافتراضية
+    let lat = req.body.lat || 34.7400;
+    let lng = req.body.lng || 10.7600;
+    
+    const craftsmanResult = await pool.query(
+        'INSERT INTO craftsmen (user_id, lat, lng, is_verified, is_active, score, badge) VALUES ($1, $2, $3, true, true, 50, $4) RETURNING id',
+        [newUser.rows[0].id, lat, lng, '⭐ موثوق']
+    );
             
             // If service_id provided, add craftsman service
             if (service_id) {
