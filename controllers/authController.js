@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 // Register
 const register = async (req, res) => {
     try {
-        const { name, phone, password, role } = req.body;
+        const { name, phone, password, role, service_id } = req.body;
 
         // Check if user exists
         const userExists = await pool.query(
@@ -28,10 +28,18 @@ const register = async (req, res) => {
 
         // If craftsman, create craftsman record
         if (role === 'craftsman') {
-            await pool.query(
-                'INSERT INTO craftsmen (user_id, lat, lng) VALUES ($1, 0, 0)',
-                [newUser.rows[0].id]
+            const craftsmanResult = await pool.query(
+                'INSERT INTO craftsmen (user_id, lat, lng, is_verified, is_active, score, badge) VALUES ($1, 34.7400, 10.7600, true, true, 50, $2) RETURNING id',
+                [newUser.rows[0].id, '⭐ موثوق']
             );
+            
+            // If service_id provided, add craftsman service
+            if (service_id) {
+                await pool.query(
+                    'INSERT INTO craftsman_services (craftsman_id, service_id) VALUES ($1, $2)',
+                    [craftsmanResult.rows[0].id, service_id]
+                );
+            }
         }
 
         // Generate token
