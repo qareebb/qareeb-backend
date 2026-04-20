@@ -1,43 +1,43 @@
 const pool = require('../config/database');
-// Get Nearby Craftsmen
+// Get Nearby Craftsmen - مع CTE لتحسين الأداء
 const getCraftsmen = async (req, res) => {
     try {
         const { lat, lng, service_id, radius = 5 } = req.query;
 
         const craftsmen = await pool.query(
-    `SELECT 
-        c.id,
-        c.user_id,
-        c.lat,
-        c.lng,
-        c.rating,
-        c.score,
-        c.badge,
-        c.total_ratings,
-        c.is_verified,
-        u.name,
-        u.phone,
-        (6371 * acos(
-            cos(radians($1)) * cos(radians(c.lat)) * 
-            cos(radians(c.lng) - radians($2)) + 
-            sin(radians($1)) * sin(radians(c.lat))
-        )) AS distance
-    FROM craftsmen c
-    JOIN users u ON c.user_id = u.id
-    JOIN craftsman_services cs ON c.id = cs.craftsman_id
-    WHERE 
-        cs.service_id = $3
-        AND c.is_verified = true
-        AND c.is_active = true
-        AND (6371 * acos(
-            cos(radians($1)) * cos(radians(c.lat)) * 
-            cos(radians(c.lng) - radians($2)) + 
-            sin(radians($1)) * sin(radians(c.lat))
-        )) <= $4
-    ORDER BY c.score DESC, distance ASC, c.rating DESC
-    LIMIT 20`,
-    [lat, lng, service_id, radius]
-);
+            `WITH craftsmen_distance AS (
+                SELECT 
+                    c.id,
+                    c.user_id,
+                    c.lat,
+                    c.lng,
+                    c.rating,
+                    c.score,
+                    c.badge,
+                    c.total_ratings,
+                    c.is_verified,
+                    u.name,
+                    u.phone,
+                    (6371 * acos(
+                        cos(radians($1)) * cos(radians(c.lat)) * 
+                        cos(radians(c.lng) - radians($2)) + 
+                        sin(radians($1)) * sin(radians(c.lat))
+                    )) AS distance
+                FROM craftsmen c
+                JOIN users u ON c.user_id = u.id
+                WHERE c.is_verified = true
+                AND c.is_active = true
+                AND EXISTS (
+                    SELECT 1 FROM craftsman_services cs 
+                    WHERE cs.craftsman_id = c.id AND cs.service_id = $3
+                )
+            )
+            SELECT * FROM craftsmen_distance
+            WHERE distance <= $4
+            ORDER BY score DESC, distance ASC, rating DESC
+            LIMIT 20`,
+            [lat, lng, service_id, radius]
+        );
 
         res.json(craftsmen.rows);
 
@@ -47,11 +47,29 @@ const getCraftsmen = async (req, res) => {
     }
 };
 
-// Update Craftsman Location
+// Update Craftsman Location - مع التحقق من الصلاحية
 const updateLocation = async (req, res) => {
     try {
         const { craftsmanId } = req.params;
         const { lat, lng } = req.body;
+        const userId = req.user?.id;
+        const userRole = req.user?.role;
+
+        // التحقق من الصلاحية
+        if (userRole !== 'admin') {
+            const craftsman = await pool.query(
+                'SELECT user_id FROM craftsmen WHERE id = $1',
+                [craftsmanId]
+            );
+            
+            if (craftsman.rows.length === 0) {
+                return res.status(404).json({ error: 'Craftsman not found' });
+            }
+            
+            if (craftsman.rows[0].user_id !== userId) {
+                return res.status(403).json({ error: 'Unauthorized' });
+            }
+        }
 
         await pool.query(
             'UPDATE craftsmen SET lat = $1, lng = $2 WHERE id = $3',
@@ -66,13 +84,14 @@ const updateLocation = async (req, res) => {
     }
 };
 
-// Accept Offer
+// Accept Offer - مع معاملة آمنة
 const acceptOffer = async (req, res) => {
+    const client = await pool.connect();
     try {
         const { offerId } = req.params;
 
         // Get offer details
-        const offer = await pool.query(
+        const offer = await client.query(
             'SELECT * FROM request_offers WHERE id = $1 AND status = $2',
             [offerId, 'pending']
         );
@@ -84,37 +103,39 @@ const acceptOffer = async (req, res) => {
         const { order_id, craftsman_id } = offer.rows[0];
 
         // Start transaction
-        await pool.query('BEGIN');
+        await client.query('BEGIN');
 
         // Update offer status
-        await pool.query(
+        await client.query(
             'UPDATE request_offers SET status = $1 WHERE id = $2',
             ['accepted', offerId]
         );
 
         // Expire other offers for this order
-        await pool.query(
+        await client.query(
             'UPDATE request_offers SET status = $1 WHERE order_id = $2 AND id != $3',
             ['expired', order_id, offerId]
         );
 
         // Update order with craftsman
-        await pool.query(
+        await client.query(
             'UPDATE orders SET craftsman_id = $1, status = $2 WHERE id = $3',
             [craftsman_id, 'accepted', order_id]
         );
 
-        await pool.query('COMMIT');
+        await client.query('COMMIT');
 
         res.json({ message: 'Offer accepted successfully' });
 
     } catch (error) {
-        await pool.query('ROLLBACK');
+        await client.query('ROLLBACK');
         console.error(error);
         res.status(500).json({ error: 'Server error' });
+    } finally {
+        client.release();
     }
 };
-// Get All Craftsmen (for map view)
+// Get All Craftsmen (for map view) - بدون تكرار
 const getAllCraftsmen = async (req, res) => {
     try {
         const craftsmen = await pool.query(
@@ -124,18 +145,20 @@ const getAllCraftsmen = async (req, res) => {
                 c.lat,
                 c.lng,
                 c.rating,
+                c.score,
+                c.badge,
                 c.is_verified,
                 c.is_active,
                 u.name,
                 u.phone,
-                array_agg(DISTINCT s.name) as services
+                (SELECT array_agg(DISTINCT s.name) 
+                 FROM craftsman_services cs 
+                 JOIN services s ON cs.service_id = s.id 
+                 WHERE cs.craftsman_id = c.id) as services
             FROM craftsmen c
             JOIN users u ON c.user_id = u.id
-            LEFT JOIN craftsman_services cs ON c.id = cs.craftsman_id
-            LEFT JOIN services s ON cs.service_id = s.id
             WHERE c.is_verified = true AND c.is_active = true
-            GROUP BY c.id, u.id
-            ORDER BY c.rating DESC`
+            ORDER BY c.score DESC, c.rating DESC`
         );
 
         res.json(craftsmen.rows);
@@ -239,15 +262,16 @@ const getCraftsmanOffers = async (req, res) => {
     }
 };
 
-// Respond to Offer (Accept/Reject)
+// Respond to Offer (Accept/Reject) - مع معاملة آمنة
 const respondToOffer = async (req, res) => {
+    const client = await pool.connect();
     try {
         const { offerId } = req.params;
-        const { action } = req.body; // 'accept' or 'reject'
+        const { action } = req.body;
         const user_id = req.user.id;
 
         // Get craftsman internal ID
-        const craftsman = await pool.query(
+        const craftsman = await client.query(
             'SELECT id FROM craftsmen WHERE user_id = $1',
             [user_id]
         );
@@ -259,44 +283,44 @@ const respondToOffer = async (req, res) => {
         const craftsmanId = craftsman.rows[0].id;
 
         // Check if offer belongs to this craftsman
-        const offer = await pool.query(
-            'SELECT * FROM request_offers WHERE id = $1 AND craftsman_id = $2 AND status = $3',
+        const offer = await client.query(
+            'SELECT * FROM request_offers WHERE id = $1 AND craftsman_id = $2 AND status = $3 AND expires_at > NOW()',
             [offerId, craftsmanId, 'pending']
         );
 
         if (offer.rows.length === 0) {
-            return res.status(404).json({ error: 'Offer not found or already processed' });
+            return res.status(404).json({ error: 'Offer not found or expired' });
         }
 
         const { order_id } = offer.rows[0];
 
         if (action === 'accept') {
-            await pool.query('BEGIN');
+            await client.query('BEGIN');
 
             // Accept this offer
-            await pool.query(
+            await client.query(
                 'UPDATE request_offers SET status = $1 WHERE id = $2',
                 ['accepted', offerId]
             );
 
             // Expire other offers for this order
-            await pool.query(
+            await client.query(
                 'UPDATE request_offers SET status = $1 WHERE order_id = $2 AND id != $3',
                 ['expired', order_id, offerId]
             );
 
             // Assign craftsman to order
-            await pool.query(
+            await client.query(
                 'UPDATE orders SET craftsman_id = $1, status = $2 WHERE id = $3',
                 [craftsmanId, 'accepted', order_id]
             );
 
-            await pool.query('COMMIT');
+            await client.query('COMMIT');
 
             res.json({ message: 'Offer accepted successfully' });
 
         } else if (action === 'reject') {
-            await pool.query(
+            await client.query(
                 'UPDATE request_offers SET status = $1 WHERE id = $2',
                 ['rejected', offerId]
             );
@@ -308,9 +332,11 @@ const respondToOffer = async (req, res) => {
         }
 
     } catch (error) {
-        await pool.query('ROLLBACK');
+        await client.query('ROLLBACK');
         console.error(error);
         res.status(500).json({ error: 'Server error' });
+    } finally {
+        client.release();
     }
 };
 module.exports = { 
